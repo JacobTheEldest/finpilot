@@ -68,11 +68,15 @@ Here are the changes from [Base Image Name]. This image is based on [Bluefin/Baz
 - Write for typical Linux users, not developers
 - Update the "Last updated" date with each change
 
-### 3. Explain signing is optional
+### 3. Verify copilot instructions are present
+
+Confirm `.github/copilot-instructions.md` exists in the new repository. This file should be automatically copied when using this as a GitHub template.
+
+### 4. Explain signing is optional
 
 Signing is DISABLED by default. First builds succeed immediately. Enable later for production (see README).
 
-**These 3 steps are REQUIRED for every new template instance.**
+**These 4 steps are REQUIRED for every new template instance.**
 
 ---
 
@@ -82,19 +86,41 @@ Signing is DISABLED by default. First builds succeed immediately. Enable later f
 ├── Containerfile          # Main build definition (FROM image, /opt config)
 ├── Justfile              # Local build automation (image name, build commands)
 ├── build/                # Build-time scripts (10-build.sh, 20-chrome.sh, etc.)
-│   └── *.sh              # Numbered scripts: dnf5 install, systemctl enable
+│   ├── 10-build.sh      # Main build script (copy custom files, install packages)
+│   ├── 20-*.sh.example  # Example third-party repos (rename to use)
+│   ├── 30-*.sh.example  # Example desktop replacement (rename to use)
+│   ├── copr-helpers.sh  # Helper functions for COPR repositories
+│   └── README.md        # Build scripts documentation
 ├── custom/               # User customizations (NOT in container, installed at runtime/first boot)
 │   ├── brew/            # Homebrew Brewfiles (CLI tools, dev tools)
+│   │   ├── default.Brewfile      # General CLI tools
+│   │   ├── development.Brewfile  # Dev environments
+│   │   ├── fonts.Brewfile        # Font packages
+│   │   └── README.md             # Homebrew documentation
 │   ├── flatpaks/        # Flatpak preinstall (GUI apps, post-first-boot)
+│   │   ├── default.preinstall    # Default GUI apps (INI format)
+│   │   └── README.md             # Flatpak documentation
 │   └── ujust/           # User commands (shortcuts to Brewfiles, system tasks)
+│       ├── custom-apps.just      # App installation shortcuts
+│       ├── custom-system.just    # System maintenance commands
+│       └── README.md             # ujust documentation
 ├── iso/                  # Local testing only (no CI/CD)
+│   ├── disk.toml        # VM/disk image config (QCOW2/RAW)
 │   ├── iso.toml         # ISO installer config (bootc switch URL)
 │   └── rclone/          # Upload configs (Cloudflare R2, AWS S3, etc.)
-└── .github/workflows/    # CI/CD
-    ├── build-testing.yml      # Builds :testing on push to testing
-    ├── release-please.yml     # Auto-creates release PRs, merges to main
-    ├── build.yml              # Builds :stable on main
-    └── clean.yml        # Deletes images >90 days old
+├── .github/              # GitHub configuration and CI/CD
+│   ├── workflows/       # GitHub Actions workflows
+│   │   ├── build.yml               # Builds :stable on main
+│   │   ├── clean.yml               # Deletes images >90 days old
+│   │   ├── renovate.yml            # Renovate bot updates (6h interval)
+│   │   ├── validate-*.yml          # Pre-merge validation checks
+│   │   └── ...
+│   ├── copilot-instructions.md  # THIS FILE - Instructions for Copilot
+│   ├── SETUP_CHECKLIST.md       # Quick setup checklist for users
+│   ├── commit-convention.md     # Conventional commits guide
+│   └── renovate.json5           # Renovate configuration
+├── .pre-commit-config.yaml   # Pre-commit hooks (optional local use)
+└── .gitignore                # Prevents committing secrets (cosign.key, etc.)
 ```
 
 ---
@@ -117,6 +143,17 @@ Signing is DISABLED by default. First builds succeed immediately. Enable later f
 ### Branch Strategy
 - **main** = Production releases ONLY. Never push directly. Builds `:stable` images.
 - **Conventional Commits** = REQUIRED. `feat:`, `fix:`, `chore:`, etc.
+- **Workflows** = All validation happens on PRs. Merging to main triggers stable builds.
+
+### Validation Workflows
+The repository includes automated validation on pull requests:
+- **validate-shellcheck.yml** - Runs shellcheck on all `build/*.sh` scripts
+- **validate-brewfiles.yml** - Validates Homebrew Brewfile syntax
+- **validate-flatpaks.yml** - Checks Flatpak app IDs exist on Flathub
+- **validate-justfiles.yml** - Validates just file syntax
+- **validate-renovate.yml** - Validates Renovate configuration
+
+**When adding files**: These validations run automatically on PRs. Fix any errors before merge.
 
 ---
 
@@ -146,6 +183,13 @@ dnf5 install -y vim git htop neovim tmux
 - Always use `dnf5` (never `dnf`, `yum`, or `rpm-ostree`)
 - Always add `-y` flag for non-interactive installs
 - For COPR repositories, use `copr_install_isolated` pattern and disable after use
+- For third-party repos, see example scripts: `build/20-onepassword.sh.example`
+
+**Script Naming Convention**:
+- `10-build.sh` - Main build script (always runs first)
+- `20-*.sh` - Additional scripts (run in numerical order)
+- `30-*.sh` - Desktop environment changes
+- `.example` suffix - Rename to `.sh` to activate
 
 ### Homebrew Packages (Brew - Runtime)
 
@@ -219,19 +263,20 @@ Branch=stable
 
 ## Quick Reference: Common User Requests
 
-| Request | Action |
-|---------|--------|
-| Add package (build-time) | `build/10-build.sh` → `dnf5 install -y pkg` |
-| Add package (runtime) | `custom/brew/default.Brewfile` → `brew "pkg"` |
-| Add GUI app | `custom/flatpaks/default.preinstall` → `[Flatpak Preinstall org.app.id]` |
-| Add user command | `custom/ujust/*.just` → create shortcut (NO dnf5) |
-| Switch base image | `Containerfile` line 5 → `FROM ghcr.io/ublue-os/bluefin:stable` |
-| Test locally | `just build && just build-qcow2 && just run-vm-qcow2` |
-| Deploy (testing) | `sudo bootc switch ghcr.io/user/repo:testing` |
-| Deploy (production) | `sudo bootc switch ghcr.io/user/repo:stable` |
-| Make release | Push to testing with `feat:`/`fix:` → merge Release Please PR |
-| Enable service | `build/10-build.sh` → `systemctl enable service.name` |
-| Add COPR | `build/10-build.sh` → enable → install → **DISABLE** |
+| Request | Action | Location |
+|---------|--------|----------|
+| Add package (build-time) | `dnf5 install -y pkg` | `build/10-build.sh` |
+| Add package (runtime) | `brew "pkg"` | `custom/brew/default.Brewfile` |
+| Add GUI app | `[Flatpak Preinstall org.app.id]` | `custom/flatpaks/default.preinstall` |
+| Add user command | Create shortcut (NO dnf5) | `custom/ujust/*.just` |
+| Add third-party repo | Use example scripts | `build/20-*.sh.example` (rename) |
+| Replace desktop | Use example script | `build/30-cosmic-desktop.sh.example` |
+| Switch base image | Update FROM line | `Containerfile` line 24 |
+| Test locally | `just build && just build-qcow2 && just run-vm-qcow2` | Terminal |
+| Deploy (production) | `sudo bootc switch ghcr.io/user/repo:stable` | Terminal |
+| Enable service | `systemctl enable service.name` | `build/10-build.sh` |
+| Add COPR | enable → install → **DISABLE** | `build/10-build.sh` |
+| Validate changes | Automatic on PR | `.github/workflows/validate-*.yml` |
 
 ---
 
@@ -239,7 +284,7 @@ Branch=stable
 
 ### 1. Base Images
 
-**File**: `Containerfile` line 5
+**File**: `Containerfile` line 24
 
 **Common choices**:
 ```dockerfile
@@ -251,6 +296,8 @@ FROM quay.io/centos-bootc/centos-bootc:stream10  # Enterprise
 ```
 
 **Tags**: `:stable` (recommended), `:latest` (bleeding edge), `-nvidia` variants available
+
+**Renovate**: Base image SHA is auto-updated by Renovate bot every 6 hours (see `.github/renovate.json5`)
 
 ### 2. Build Scripts (`build/`)
 
@@ -301,6 +348,8 @@ systemctl set-default graphical.target
 ```
 
 **CRITICAL**: Use `copr_install_isolated` function. Always disable COPRs.
+
+**Example scripts**: See `build/20-onepassword.sh.example` and `build/30-cosmic-desktop.sh.example` for complete working examples.
 
 ### 3. Homebrew (`custom/brew/`)
 
@@ -388,11 +437,22 @@ bootc switch --mutate-in-place --transport registry ghcr.io/USERNAME/REPO:stable
 - `main` - Production only. Builds `:stable` images. Never push directly.
 
 **Workflows**:
-- `build-testing.yml` - Builds `:testing` on push to testing
-- `release-please.yml` - Auto-creates/updates release PRs, auto-merges to main
 - `build.yml` - Builds `:stable` on main
-- `renovate.json` - Monitors base image updates (every 6 hours)
+- `renovate.yml` - Monitors base image updates (every 6 hours)
 - `clean.yml` - Deletes images >90 days (weekly)
+- `validate-*.yml` - Pre-merge validation (shellcheck, Brewfile, Flatpak, etc.)
+
+**Image Tags**:
+- `:stable` - Latest stable release from main branch
+- `:stable.YYYYMMDD` - Datestamped stable release
+- `:YYYYMMDD` - Date only
+- `:pr-123` - Pull request builds (for testing)
+- `:sha-abc123` - Git commit SHA (short)
+
+**Renovate Bot**: 
+- Automatically updates base image SHAs in `Containerfile`
+- Runs every 6 hours (configured in `.github/renovate.json5`)
+- Creates PRs for updates - review and merge to keep images current
 
 ### 8. Image Signing (Optional, Recommended for Production)
 
@@ -437,6 +497,9 @@ COSIGN_PASSWORD="" cosign generate-key-pair
 11. **ALWAYS** run shellcheck/YAML validation before committing
 12. **ALWAYS** update bootc switch URL in `iso/iso.toml` to match user's repo
 13. **ALWAYS** follow numbered script convention: `10-*.sh`, `20-*.sh`, `30-*.sh`
+14. **ALWAYS** check example scripts before creating new patterns (`.example` files in `build/`)
+15. **ALWAYS** validate that new Flatpak IDs exist on Flathub before adding
+16. **NEVER** modify validation workflows without understanding impact on PR checks
 ---
 
 ## Troubleshooting
@@ -445,16 +508,163 @@ COSIGN_PASSWORD="" cosign generate-key-pair
 |---------|-------|----------|
 | Build fails: "permission denied" | Signing misconfigured | Verify signing commented out OR `SIGNING_SECRET` set |
 | Build fails: "package not found" | Typo or unavailable | Check spelling, verify on RPMfusion, add COPR if needed |
-| Build fails: "base image not found" | Invalid FROM line | Check syntax in `Containerfile` line 5 |
-| Release Please no PRs | Missing setup OR invalid commits | 1. Enable Actions permissions 2. MUST use conventional commits format 3. Push to testing branch |
-| Release Please PR not updating | Invalid commit format | ALL commits MUST follow `<type>: <description>` format. Fix commit messages and force push |
-| Commits not in changelog | Wrong commit type | Use `feat:` or `fix:` for changes. `docs:`, `chore:` etc. don't trigger releases |
-| Changes not in production | Wrong workflow | Push to testing first, merge Release Please PR to get `:stable` |
+| Build fails: "base image not found" | Invalid FROM line | Check syntax in `Containerfile` line 24 |
+| Build fails: "shellcheck error" | Script syntax error | Run `shellcheck build/*.sh` locally, fix errors |
+| PR validation fails: Brewfile | Invalid Brewfile syntax | Check Ruby syntax, ensure packages exist |
+| PR validation fails: Flatpak | Invalid app ID | Verify app ID exists on https://flathub.org/ |
+| PR validation fails: justfile | Invalid just syntax | Run `just --list` locally to test |
+| Changes not in production | Wrong workflow | Push to main (via PR) to trigger stable builds |
 | ISO missing customizations | Wrong bootc URL | Update `iso/iso.toml` bootc switch URL to match repo |
 | COPR packages missing after boot | COPR not disabled | COPRs persist if not disabled - use `copr_install_isolated` |
 | ujust commands not working | Wrong install location | Files must be in `custom/ujust/` and copied to `/usr/share/ublue-os/just/` |
 | Flatpaks not installed | Expected behavior | Flatpaks install post-first-boot, not in ISO/container |
 | Local build fails | Wrong environment | Must run on bootc-based system or have podman installed |
+| Renovate not creating PRs | Configuration issue | Check `.github/renovate.json5` syntax |
+| Third-party repo not working | Repo file persists | Remove repo file at end of script (see examples) |
+
+---
+
+## Common Patterns & Examples
+
+### Pattern 1: Adding Third-Party RPM Repositories
+
+**Use case**: Installing Google Chrome, 1Password, VS Code, etc.
+
+**Example**: See `build/20-onepassword.sh.example`
+
+**Steps**:
+1. Add GPG key (if required)
+2. Create repo file in `/etc/yum.repos.d/`
+3. Install packages with `dnf5 install -y`
+4. **CRITICAL**: Remove repo file at end
+
+```bash
+# Add repo
+cat > /etc/yum.repos.d/google-chrome.repo << 'EOF'
+[google-chrome]
+name=google-chrome
+baseurl=https://dl.google.com/linux/chrome/rpm/stable/x86_64
+enabled=1
+gpgcheck=1
+gpgkey=https://dl.google.com/linux/linux_signing_key.pub
+EOF
+
+# Install
+dnf5 install -y google-chrome-stable
+
+# Clean up (required!)
+rm -f /etc/yum.repos.d/google-chrome.repo
+```
+
+### Pattern 2: Using COPR Repositories
+
+**Use case**: Installing packages from Fedora COPR (community repos)
+
+**Example**: See `build/copr-helpers.sh` and `build/30-cosmic-desktop.sh.example`
+
+**Always use `copr_install_isolated` function**:
+```bash
+source /ctx/build/copr-helpers.sh
+
+# Install from COPR (isolated - auto-disables after install)
+copr_install_isolated "ublue-os/staging" package-name
+
+# Install multiple packages
+copr_install_isolated "ryanabx/cosmic-epoch" \
+    cosmic-session \
+    cosmic-greeter \
+    cosmic-comp
+```
+
+### Pattern 3: Replacing Desktop Environment
+
+**Use case**: Swap GNOME for KDE, COSMIC, etc.
+
+**Example**: See `build/30-cosmic-desktop.sh.example`
+
+**Steps**:
+1. Remove old desktop: `dnf5 remove -y gnome-shell ...`
+2. Install new desktop: `copr_install_isolated ...`
+3. Configure display manager: `systemctl enable ...`
+4. Set default session
+
+### Pattern 4: Enabling System Services
+
+**Location**: `build/10-build.sh`
+
+```bash
+# Enable service
+systemctl enable podman.socket
+
+# Mask unwanted service
+systemctl mask unwanted-service
+
+# Set default target
+systemctl set-default graphical.target
+```
+
+### Pattern 5: Creating Custom ujust Commands
+
+**Location**: `custom/ujust/*.just`
+
+**Example structure**:
+```just
+# vim: set ft=make :
+
+# Install development tools
+[group('Apps')]
+install-dev-tools:
+    #!/usr/bin/env bash
+    echo "Installing development tools..."
+    brew bundle --file /usr/share/ublue-os/homebrew/development.Brewfile
+
+# Custom system command
+[group('System')]
+my-custom-command:
+    #!/usr/bin/env bash
+    echo "Running custom command..."
+    # Your logic here (NO dnf5!)
+```
+
+### Pattern 6: Local Testing Workflow
+
+**Complete local testing cycle**:
+```bash
+# 1. Build container image
+just build
+
+# 2. Build QCOW2 disk image
+just build-qcow2
+
+# 3. Run in VM
+just run-vm-qcow2
+
+# Or combine all steps
+just build && just build-qcow2 && just run-vm-qcow2
+```
+
+**Alternative**: Build ISO for installation testing
+```bash
+just build
+just build-iso
+just run-vm-iso
+```
+
+### Pattern 7: Pre-commit Validation (Optional)
+
+**Setup pre-commit hooks locally**:
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run manually
+pre-commit run --all-files
+```
+
+**Note**: Pre-commit config exists (`.pre-commit-config.yaml`) but is optional. CI validation runs automatically on PRs.
 
 ---
 
@@ -496,6 +706,63 @@ Rechunker optimizes container layer distribution for better resumability.
 
 ---
 
+## Understanding the Build Process
+
+### Container Build Flow
+
+1. **Base Image** - Pulls base image specified in `Containerfile` FROM line
+2. **Context Stage** - Mounts `build/` and `custom/` directories
+3. **Build Scripts** - Runs scripts in `build/` directory in numerical order:
+   - `10-build.sh` - Always runs first (copies custom files, installs packages)
+   - `20-*.sh` - Additional scripts (if present and not .example)
+   - `30-*.sh` - More scripts (if present and not .example)
+4. **Container Lint** - Validates final image with `bootc container lint`
+5. **Push to Registry** - Uploads to GitHub Container Registry (ghcr.io)
+
+### What Gets Included in the Image
+
+**Build-time (baked into image)**:
+- System packages from `dnf5 install`
+- Enabled systemd services
+- Custom files copied from `/ctx/custom/` to standard locations:
+  - Brewfiles → `/usr/share/ublue-os/homebrew/`
+  - ujust files → `/usr/share/ublue-os/just/60-custom.just`
+  - Flatpak preinstall → `/etc/flatpak/preinstall.d/`
+
+**Runtime (installed after deployment)**:
+- Homebrew packages (user runs `ujust install-*`)
+- Flatpak applications (installed on first boot, requires internet)
+
+### Local vs CI Builds
+
+**Local builds** (with `just build`):
+- Uses your local podman
+- Faster for testing
+- No signing, no rechunking
+- No automatic push to registry
+
+**CI builds** (GitHub Actions):
+- Uses GitHub runners
+- Automatic on push/PR
+- Includes validation steps
+- Can include signing and rechunking
+- Automatic push to ghcr.io
+
+### Image Layers and Caching
+
+**Efficient layering**:
+- Each `RUN` command creates a new layer
+- Layers are cached between builds
+- Changes near end of Containerfile = faster rebuilds
+- Use `--mount=type=cache` for package managers
+
+**Best practices**:
+- Group related `dnf5 install` commands together
+- Don't install and remove in same layer
+- Clean up in same RUN command as install
+
+---
+
 ## Image Tags Reference
 
 **Main branch** (production releases):
@@ -523,21 +790,147 @@ When user requests customization, check in this order:
 7. **`iso/*.toml`** (2%) - ISO/disk customization for testing
 8. **`.github/workflows/`** (1%) - Metadata, triggers, workflow config
 
+### Files to AVOID Modifying
+
+**Do NOT modify unless specifically requested or necessary**:
+- `.github/renovate.json5` - Renovate configuration (auto-updates)
+- `.github/workflows/validate-*.yml` - Validation workflows
+- `.gitignore` - Prevents committing secrets
+- `build/copr-helpers.sh` - Helper functions (stable patterns)
+- `LICENSE` - Repository license
+- `cosign.pub` - Public signing key (regenerate if changing keys)
+
+**Modify with extreme caution**:
+- `.github/workflows/build.yml` - Core build workflow
+- `.github/workflows/clean.yml` - Image cleanup
+- `Justfile` - Local build automation (users rely on these commands)
+
+---
+
+## Debugging Tips
+
+### Local Debugging
+
+**Build failures**:
+```bash
+# Build with verbose output
+podman build --log-level=debug .
+
+# Check build script syntax
+shellcheck build/*.sh
+
+# Test specific script in container
+podman run --rm -it ghcr.io/ublue-os/bluefin:stable bash
+# Then run your script commands manually
+```
+
+**Brewfile issues**:
+```bash
+# Validate Brewfile syntax
+brew bundle check --file custom/brew/default.Brewfile
+
+# List what would be installed
+brew bundle list --file custom/brew/default.Brewfile
+```
+
+**Just file issues**:
+```bash
+# Check syntax
+just --list
+
+# Check specific file
+just --unstable --fmt --check -f custom/ujust/custom-apps.just
+
+# Run specific command with debug
+just --verbose install-default-apps
+```
+
+### CI Debugging
+
+**Check workflow logs**:
+1. Go to Actions tab in GitHub
+2. Click on failed workflow run
+3. Expand failed step
+4. Look for error messages
+
+**Common CI failures**:
+- Shellcheck errors: Fix script syntax
+- Brewfile validation: Check package names exist
+- Flatpak validation: Verify app IDs on Flathub
+- Image pull failures: Check base image SHA/tag
+
+**Test PR before merge**:
+```bash
+# PR builds are tagged as :pr-NUMBER
+podman pull ghcr.io/YOUR_USERNAME/YOUR_REPO:pr-123
+podman run --rm -it ghcr.io/YOUR_USERNAME/YOUR_REPO:pr-123 bash
+```
+
+### Runtime Debugging
+
+**After deployment**:
+```bash
+# Check system info
+bootc status
+
+# Check running services
+systemctl list-units --failed
+
+# Check logs
+journalctl -b -p err
+
+# Check ujust commands available
+ujust --list
+
+# Check Brewfiles location
+ls -la /usr/share/ublue-os/homebrew/
+
+# Check Flatpak preinstall
+ls -la /etc/flatpak/preinstall.d/
+```
+
+**Flatpak debugging**:
+```bash
+# Check Flatpak remotes
+flatpak remotes
+
+# Check installed Flatpaks
+flatpak list
+
+# Install Flatpak manually
+flatpak install -y flathub org.mozilla.firefox
+```
+
+**Homebrew debugging**:
+```bash
+# Check Homebrew status
+brew doctor
+
+# Check Brewfile
+cat /usr/share/ublue-os/homebrew/default.Brewfile
+
+# Install manually
+brew install package-name
+```
+
 ---
 
 ## Resources & Documentation
 
 - **Bluefin patterns**: https://github.com/ublue-os/bluefin
 - **bootc documentation**: https://github.com/containers/bootc
-- **Release Please**: https://github.com/googleapis/release-please
 - **Conventional Commits**: https://www.conventionalcommits.org/
 - **RPMfusion packages**: https://mirrors.rpmfusion.org/
 - **Flatpak IDs**: https://flathub.org/
 - **Homebrew**: https://brew.sh/
 - **Universal Blue**: https://universal-blue.org/
+- **Renovate**: https://docs.renovatebot.com/
+- **GitHub Actions**: https://docs.github.com/en/actions
+- **Podman**: https://podman.io/
+- **Justfile**: https://just.systems/
 
 ---
 
-**Last Updated**: 2025-01-29  
-**Template Version**: finpilot with Release Please + Renovate  
-**Maintainer**: Universal Blue Project
+**Last Updated**: 2025-11-01  
+**Template Version**: finpilot (Enhanced with comprehensive Copilot instructions)  
+**Maintainer**: Universal Blue Community
