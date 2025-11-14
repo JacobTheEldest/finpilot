@@ -13,7 +13,7 @@ Here are the steps to guide copilot to make your own repo, or just use it like a
 3. In the "Jumpstart your project with Copilot (optional)" add this, modify to your liking:
 
 ```
-Use @castrojo/finpilot as a template, name the OS the repository name. Ensure the entire operating system is bootstrapped. Ensure all github actions are enabled and running.  Ensure the README has the github setup instructions for cosign and the other steps required to finish the task.
+Use @projectbluefin/finpilot as a template, name the OS the repository name. Ensure the entire operating system is bootstrapped. Ensure all github actions are enabled and running.  Ensure the README has the github setup instructions for cosign and the other steps required to finish the task.
 ```
 
 ## What's Included
