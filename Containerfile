@@ -23,15 +23,13 @@
 #
 # 1. Context Stage (ctx) - Combines resources from:
 #    - Local build scripts and custom files
-#    - @ublue-os/base-main - Base system configuration
-#    - @projectbluefin/common - Desktop configuration shared with Aurora
-#    - @projectbluefin/branding - Branding assets
-#    - @ublue-os/artwork - Artwork shared with Aurora and Bazzite
+#    - @projectbluefin/common - Desktop configuration shared with Aurora 
 #    - @ublue-os/brew - Homebrew integration
 #
 # 2. Base Image Options:
-#    - ghcr.io/ublue-os/silverblue-main (Fedora-based, default)
-#    - quay.io/centos-bootc/centos-bootc:stream10 (CentOS-based)
+#    - `ghcr.io/ublue-os/silverblue-main:latest` (Fedora and GNOME)
+#    - `ghcr.io/ublue-os/base-main:latest` (Fedora and no desktop 
+#    - `quay.io/centos-bootc/centos-bootc:stream10 (CentOS-based)` 
 #
 # See: https://docs.projectbluefin.io/contributing/ for architecture diagram
 ###############################################################################
@@ -43,10 +41,7 @@ COPY build /build
 COPY custom /custom
 # Copy from OCI containers to distinct subdirectories to avoid conflicts
 # Note: Renovate can automatically update these :latest tags to SHA-256 digests for reproducibility
-COPY --from=ghcr.io/ublue-os/base-main:latest /system_files /oci/base
 COPY --from=ghcr.io/projectbluefin/common:latest /system_files /oci/common
-COPY --from=ghcr.io/projectbluefin/branding:latest /system_files /oci/branding
-COPY --from=ghcr.io/ublue-os/artwork:latest /system_files /oci/artwork
 COPY --from=ghcr.io/ublue-os/brew:latest /system_files /oci/brew
 
 # Base Image - GNOME included
@@ -58,7 +53,6 @@ FROM ghcr.io/ublue-os/silverblue-main:latest
 
 ## Alternative GNOME OS base image (uncomment to use):
 # FROM quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-nightly
-
 
 ### /opt
 ## Some bootable images, like Fedora, have /opt symlinked to /var/opt, in order to
